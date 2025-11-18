@@ -1,0 +1,13 @@
+{
+  "name": "radar-system-web",
+  "version": "1.0.0",
+  "description": "Web server for Radar System IoT",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "mqtt": "^5.0.0"
+  }
+}

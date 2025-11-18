@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Accueil - Radar MQTT</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #f0f0f0;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        p {
+            color: #666;
+            font-size: 18px;
+            margin: 20px 0;
+        }
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1> Radar MQTT</h1>
+        <p>Authentification réussie !</p>
+        <p id="status">Connexion au serveur MQTT...</p>
+        
+        <button onclick="logout()">Déconnexion</button>
+    </div>
+
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script>
+        const statusDiv = document.getElementById('status');
+        let radarData = null;
+
+        if (!!window.EventSource) {
+            const evtSource = new EventSource('/events');
+
+            evtSource.onopen = () => {
+                statusDiv.textContent = ' Connecté (SSE)';
+            };
+
+            evtSource.onerror = (err) => {
+                statusDiv.textContent = ' Erreur de connexion SSE';
+                console.error('SSE erreur:', err);
+            };
+
+            evtSource.onmessage = (e) => {
+                try {
+                    const msg = JSON.parse(e.data);
+                    radarData = msg.message || msg;
+                } catch (err) {
+                    console.error('Erreur parsing SSE message', err);
+                }
+            };
+        } else {
+            async function fetchMessages() {
+                try {
+                    const response = await fetch('/api/messages');
+                    const messages = await response.json();
+                    statusDiv.textContent = ' Connecté (polling)';
+                    if (messages.length > 0) radarData = messages[0].message;
+                } catch (err) {
+                    statusDiv.textContent = ' Erreur de connexion';
+                    console.error('Erreur:', err);
+                }
+            }
+            fetchMessages();
+            setInterval(fetchMessages, 500);
+        }
+
+        function logout() {
+            window.location.href = '/';
+        }
+    </script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+        <script>
+            let x = 450;
+            let y = 450;
+            let points = [];
+            let lastDistance = null;
+            
+            let scanAngle = 0;
+            let scanDirection = 1;
+
+            function setup() {
+                createCanvas(900, 450);
+            }
+
+            function draw() {
+                background(0, 40);
+                
+                drawRadarCircles();
+                
+                if (radarData && radarData.distance !== undefined) {
+                    let msgAngle = radarData.angle !== undefined ? radarData.angle : scanAngle;
+
+                    addRadarPoint(msgAngle, radarData.distance);
+                    lastDistance = radarData.distance;
+
+                    drawScanLine(msgAngle);
+                } else {
+                    drawScanLineEmpty();
+                }
+                
+                drawAllPoints();
+                
+                drawLabels();
+            }
+            
+            function drawRadarCircles() {
+                noFill();
+                stroke(0, 255, 0);
+                
+                for (let i = 1; i <= 8; i++) {
+                    strokeWeight(i % 2 === 0 ? 3 : 1);
+                    circle(x, y, i * 100);
+                }
+            }
+            
+            function drawScanLine(angle) {
+                let usedAngle = angle < 2 * PI ? angle : radians(angle);
+
+                stroke(0, 255, 0);
+                strokeWeight(2);
+                let x2 = x + cos(usedAngle) * lastDistance;
+                let y2 = y - sin(usedAngle) * lastDistance;
+                line(x, y, x2, y2);
+                scanAngle += 0.02 * scanDirection;
+                if (scanAngle > PI) {
+                    scanAngle = PI;
+                    scanDirection = -1;
+                }
+                if (scanAngle < 0) {
+                    scanAngle = 0;
+                    scanDirection = 1;
+                }
+            }
+            
+            function drawScanLineEmpty() {
+                stroke(0, 255, 0);
+                strokeWeight(2);
+                let x2 = x + cos(scanAngle) * 400;
+                let y2 = y - sin(scanAngle) * 400;
+                line(x, y, x2, y2);
+                
+                scanAngle += 0.02 * scanDirection;
+                if (scanAngle > PI) {
+                    scanAngle = PI;
+                    scanDirection = -1;
+                }
+                if (scanAngle < 0) {
+                    scanAngle = 0;
+                    scanDirection = 1;
+                }
+            }
+            
+            function addRadarPoint(angle, distance) {
+                let limitedDistance = constrain(distance, 0, 400);
+
+                let radAngle = angle < 2 * PI ? angle : radians(angle);
+
+                let scaledDistance = map(limitedDistance, 0, 400, 0, 400);
+
+                let px = x + cos(radAngle) * scaledDistance;
+                let py = y - sin(radAngle) * scaledDistance;
+
+                points.push({ 
+                    x: px, 
+                    y: py, 
+                    angle: angle, 
+                    distance: limitedDistance,
+                    timestamp: millis()
+                });
+
+                if (points.length > 50) {
+                    points.shift();
+                }
+            }
+
+            function drawAllPoints() {
+                let currentTime = millis();
+                let fadeDuration = 5000;
+                
+                for (let i = 0; i < points.length; i++) {
+                    let age = currentTime - points[i].timestamp;
+                    let opacity = map(age, 0, fadeDuration, 255, 0);
+                    opacity = constrain(opacity, 0, 255);
+                    
+                    fill(0, 255, 0, opacity);
+                    stroke(100, 255, 100, opacity);
+                    strokeWeight(2);
+                    circle(points[i].x, points[i].y, 5);
+                }
+                
+                points = points.filter(point => (currentTime - point.timestamp) < fadeDuration);
+            }
+            
+            function drawLabels() {
+                fill(0, 255, 0);
+                noStroke();
+                textSize(10);
+                textAlign(CENTER, TOP);
+                text("0m", 450, 440);
+                text("0.5m", 387, 440);
+                text("1m", 340, 440);
+                text("1.5m", 287, 440);
+                text("2m", 240, 440);
+                text("2.5m", 187, 440);
+                text("3m", 140, 440);
+                text("3.5m", 87, 440);
+                text("4m", 40, 440);
+            }
+        </script>
+</body>
+</html>
