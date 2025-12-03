@@ -1,8 +1,49 @@
 const express = require('express');
 const mqtt = require('mqtt');
+const session = require('express-session');
+const bcrypt = require('bcryptjs');
+const fs = require('fs');
+const path = require('path');
 
 const app = express();
 const port = 3000;
+
+// Chemin du fichier de stockage des utilisateurs
+const usersFilePath = path.join(__dirname, 'users.json');
+
+// Charger les utilisateurs depuis le fichier
+function loadUsers() {
+    try {
+        if (fs.existsSync(usersFilePath)) {
+            const data = fs.readFileSync(usersFilePath, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (err) {
+        console.error('Erreur lors de la lecture des utilisateurs:', err);
+    }
+    return {};
+}
+
+// Sauvegarder les utilisateurs dans le fichier
+function saveUsers(users) {
+    try {
+        fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2), 'utf8');
+    } catch (err) {
+        console.error('Erreur lors de la sauvegarde des utilisateurs:', err);
+    }
+}
+
+let users = loadUsers();
+
+// Configuration des sessions
+app.use(session({
+    secret: 'radar-secret-key-123',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 1000 * 60 * 60 * 24 } // 24 heures
+}));
+
+app.use(express.json());
 
 let lastMessages = [];
 const maxMessages = 50;
@@ -11,15 +52,98 @@ let sseClients = [];
 
 app.use(express.static('public'));
 
-app.get('/accueil', (req, res) => {
+// Route de connexion
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    
+    if (users[username]) {
+        // Comparer le mot de passe avec le hash
+        bcrypt.compare(password, users[username], (err, isMatch) => {
+            if (err) {
+                res.json({ success: false });
+                return;
+            }
+            
+            if (isMatch) {
+                req.session.userId = username;
+                req.session.username = username;
+                res.json({ success: true });
+            } else {
+                res.json({ success: false });
+            }
+        });
+    } else {
+        res.json({ success: false });
+    }
+});
+
+// Route d'inscription
+app.post('/api/register', (req, res) => {
+    const { username, password } = req.body;
+    
+    if (!username || !password) {
+        res.json({ success: false, message: 'Nom d\'utilisateur et mot de passe requis' });
+        return;
+    }
+    
+    if (users[username]) {
+        res.json({ success: false, message: 'Ce nom d\'utilisateur existe déjà' });
+        return;
+    }
+    
+    // Chiffrer le mot de passe
+    bcrypt.hash(password, 10, (err, hashedPassword) => {
+        if (err) {
+            res.json({ success: false, message: 'Erreur serveur' });
+            return;
+        }
+        
+        // Créer le nouvel utilisateur avec le mot de passe chiffré
+        users[username] = hashedPassword;
+        saveUsers(users);
+        
+        res.json({ success: true, message: 'Compte créé avec succès' });
+    });
+});
+
+// Route de vérification de session
+app.get('/api/check-session', (req, res) => {
+    if (req.session.userId) {
+        res.json({ authenticated: true, username: req.session.username });
+    } else {
+        res.json({ authenticated: false });
+    }
+});
+
+// Route de déconnexion
+app.post('/api/logout', (req, res) => {
+    req.session.destroy((err) => {
+        if (err) {
+            res.json({ success: false });
+        } else {
+            res.json({ success: true });
+        }
+    });
+});
+
+// Middleware pour vérifier la session
+function checkAuth(req, res, next) {
+    if (req.session.userId) {
+        next();
+    } else {
+        res.redirect('/login.html');
+    }
+}
+
+app.get('/accueil', checkAuth, (req, res) => {
     res.sendFile(__dirname + '/public/accueil.html');
 });
 
-app.get('/api/messages', (req, res) => {
+app.get('/api/messages', checkAuth, (req, res) => {
     res.json(lastMessages);
 });
 
-app.get('/events', (req, res) => {
+app.get('/events', checkAuth, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');

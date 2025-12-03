@@ -46,8 +46,8 @@
 </head>
 <body>
     <div class="container">
-        <h1> Radar MQTT</h1>
-        <p>Authentification réussie !</p>
+        <h1>⚙️ Radar MQTT</h1>
+        <p>Bienvenue <strong id="username">utilisateur</strong> !</p>
         <p id="status">Connexion au serveur MQTT...</p>
         
         <button onclick="logout()">Déconnexion</button>
@@ -55,6 +55,20 @@
 
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script>
+        // Vérifier si l'utilisateur est connecté
+        fetch('/api/check-session')
+            .then(response => response.json())
+            .then(data => {
+                if (!data.authenticated) {
+                    window.location.href = '/login.html';
+                } else {
+                    document.getElementById('username').textContent = data.username;
+                }
+            })
+            .catch(err => {
+                window.location.href = '/login.html';
+            });
+
         const statusDiv = document.getElementById('status');
         let radarData = null;
 
@@ -95,7 +109,10 @@
         }
 
         function logout() {
-            window.location.href = '/';
+            fetch('/api/logout', { method: 'POST' })
+                .then(() => {
+                    window.location.href = '/login.html';
+                });
         }
     </script>
         <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>

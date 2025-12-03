@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Connexion - Radar MQTT</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: #f0f0f0;
+            margin: 0;
+        }
+        .container {
+            background: white;
+            padding: 40px;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            text-align: center;
+            width: 300px;
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .form-group {
+            margin: 20px 0;
+            text-align: left;
+        }
+        label {
+            display: block;
+            color: #333;
+            margin-bottom: 5px;
+            font-weight: bold;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            font-size: 16px;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            box-sizing: border-box;
+        }
+        input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+        button {
+            width: 100%;
+            padding: 10px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 16px;
+            margin-top: 20px;
+            font-weight: bold;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .message {
+            margin-top: 20px;
+            font-size: 14px;
+            min-height: 20px;
+        }
+        .error {
+            color: red;
+        }
+        .success {
+            color: green;
+        }
+        .form-section {
+            display: none;
+        }
+        .form-section.active {
+            display: block;
+        }
+        .toggle-btn {
+            background: none;
+            border: none;
+            color: #007bff;
+            cursor: pointer;
+            font-size: 14px;
+            text-decoration: underline;
+            margin-top: 15px;
+            padding: 0;
+            width: 100%;
+            display: none;
+        }
+        .toggle-btn:hover {
+            color: #0056b3;
+        }
+        a {
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Radar MQTT</h1>
+        
+        <!-- Formulaire de connexion -->
+        <div id="login-section" class="form-section active">
+            <div class="form-group">
+                <label for="login-username">Nom d'utilisateur</label>
+                <input type="text" id="login-username" placeholder="Entrez votre nom">
+            </div>
+            
+            <div class="form-group">
+                <label for="login-password">Mot de passe</label>
+                <input type="password" id="login-password" placeholder="Entrez votre mot de passe">
+            </div>
+            
+            <button onclick="login()">Connexion</button>
+            <p style="margin-top: 15px; color: #666; font-size: 14px;">
+                Pas encore inscrit ? <a href="#" onclick="toggleForm(); return false;" style="color: #007bff; text-decoration: underline; cursor: pointer;">Créer un compte</a>
+            </p>
+        </div>
+        
+        <!-- Formulaire d'inscription -->
+        <div id="register-section" class="form-section">
+            <div class="form-group">
+                <label for="register-username">Nom d'utilisateur</label>
+                <input type="text" id="register-username" placeholder="Choisissez un nom">
+            </div>
+            
+            <div class="form-group">
+                <label for="register-password">Mot de passe</label>
+                <input type="password" id="register-password" placeholder="Choisissez un mot de passe">
+            </div>
+            
+            <div class="form-group">
+                <label for="register-password-confirm">Confirmez le mot de passe</label>
+                <input type="password" id="register-password-confirm" placeholder="Confirmez votre mot de passe">
+            </div>
+            
+            <button onclick="register()">Créer un compte</button>
+            <p style="margin-top: 15px; color: #666; font-size: 14px;">
+                Déjà inscrit ? <a href="#" onclick="toggleForm(); return false;" style="color: #007bff; text-decoration: underline; cursor: pointer;">Se connecter</a>
+            </p>
+        </div>
+        
+        <div class="message" id="message"></div>
+    </div>
+
+    <script>
+        function toggleForm() {
+            document.getElementById('login-section').classList.toggle('active');
+            document.getElementById('register-section').classList.toggle('active');
+            document.getElementById('message').textContent = '';
+            document.getElementById('message').className = 'message';
+        }
+
+        function login() {
+            const username = document.getElementById('login-username').value;
+            const password = document.getElementById('login-password').value;
+            const messageDiv = document.getElementById('message');
+
+            if (username === '' || password === '') {
+                messageDiv.textContent = 'Veuillez remplir tous les champs';
+                messageDiv.className = 'message error';
+                return;
+            }
+
+            fetch('/api/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username: username, password: password })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    messageDiv.textContent = 'Connexion réussie !';
+                    messageDiv.className = 'message success';
+                    setTimeout(() => {
+                        window.location.href = '/accueil';
+                    }, 1000);
+                } else {
+                    messageDiv.textContent = 'Identifiants incorrects';
+                    messageDiv.className = 'message error';
+                }
+            })
+            .catch(err => {
+                messageDiv.textContent = 'Erreur serveur';
+                messageDiv.className = 'message error';
+                console.error('Erreur:', err);
+            });
+        }
+
+        function register() {
+            const username = document.getElementById('register-username').value;
+            const password = document.getElementById('register-password').value;
+            const passwordConfirm = document.getElementById('register-password-confirm').value;
+            const messageDiv = document.getElementById('message');
+
+            if (username === '' || password === '' || passwordConfirm === '') {
+                messageDiv.textContent = 'Veuillez remplir tous les champs';
+                messageDiv.className = 'message error';
+                return;
+            }
+
+            if (password !== passwordConfirm) {
+                messageDiv.textContent = 'Les mots de passe ne correspondent pas';
+                messageDiv.className = 'message error';
+                return;
+            }
+
+            if (password.length < 4) {
+                messageDiv.textContent = 'Le mot de passe doit contenir au moins 4 caractères';
+                messageDiv.className = 'message error';
+                return;
+            }
+
+            fetch('/api/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ username: username, password: password })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    messageDiv.textContent = 'Compte créé ! Redirection...';
+                    messageDiv.className = 'message success';
+                    setTimeout(() => {
+                        toggleForm();
+                        document.getElementById('login-username').value = username;
+                        document.getElementById('login-password').value = '';
+                        messageDiv.textContent = 'Compte créé ! Connectez-vous maintenant.';
+                    }, 1000);
+                } else {
+                    messageDiv.textContent = data.message || 'Ce nom d\'utilisateur existe déjà';
+                    messageDiv.className = 'message error';
+                }
+            })
+            .catch(err => {
+                messageDiv.textContent = 'Erreur serveur';
+                messageDiv.className = 'message error';
+                console.error('Erreur:', err);
+            });
+        }
+
+        // Permettre la connexion avec Entrée
+        document.getElementById('login-password').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                login();
+            }
+        });
+
+        document.getElementById('register-password-confirm').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                register();
+            }
+        });
+    </script>
+</body>
+</html>
