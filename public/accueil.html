@@ -94,7 +94,6 @@
 
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script>
-        // Vérifier si l'utilisateur est connecté
         fetch('/api/check-session')
             .then(response => response.json())
             .then(data => {
@@ -107,9 +106,8 @@
             .catch(err => {
                 window.location.href = '/login.html';
             });
-
         const statusDiv = document.getElementById('status');
-        let radarData = null;
+        let radarQueue = []; 
 
         if (!!window.EventSource) {
             const evtSource = new EventSource('/events');
@@ -126,7 +124,7 @@
             evtSource.onmessage = (e) => {
                 try {
                     const msg = JSON.parse(e.data);
-                    radarData = msg.message || msg;
+                    radarQueue.push(msg.message || msg);
                 } catch (err) {
                     console.error('Erreur parsing SSE message', err);
                 }
@@ -137,164 +135,130 @@
                     const response = await fetch('/api/messages');
                     const messages = await response.json();
                     statusDiv.textContent = ' Connecté (polling)';
-                    if (messages.length > 0) radarData = messages[0].message;
+                    
+                    if (messages.length > 0) {
+                        messages.forEach(m => radarQueue.push(m.message));
+                    }
                 } catch (err) {
                     statusDiv.textContent = ' Erreur de connexion';
                     console.error('Erreur:', err);
                 }
             }
             fetchMessages();
-            setInterval(fetchMessages, 500);
+            setInterval(fetchMessages, 100);
         }
 
         function logout() {
-            fetch('/api/logout', { method: 'POST' })
-                .then(() => {
-                    window.location.href = '/login.html';
-                });
+            window.location.href = '/';
         }
     </script>
-        <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
-        <script>
-            let x = 0;
-            let y = 0;
-            let points = [];
-            let lastDistance = null;
-            
-            let scanAngle = 0;
-            let scanDirection = 1;
 
-            function setup() {
-                const cnv = createCanvas(900, 450);
-                cnv.parent('sketch');
-                x = width / 2;
-                y = height / 2;
-            }
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
+    
+    <script>
+        const MAX_RANGE_CM = 300;
+        const MAX_RADIUS_PX = 400;
+        let x = 450;
+        let y = 450;
+        let points = [];
+        let lastDistance = null;
+        let scanAngle = 0;
 
-            function draw() {
-                background(0, 40);
-                
-                drawRadarCircles();
-                
-                if (radarData && radarData.distance !== undefined) {
-                    let msgAngle = radarData.angle !== undefined ? radarData.angle : scanAngle;
+        function setup() {
+            createCanvas(900, 450);
+        }
 
-                    addRadarPoint(msgAngle, radarData.distance);
-                    lastDistance = radarData.distance;
-
+        function draw() {
+            background(0, 40);
+            drawRadarCircles();
+            while (radarQueue.length > 0) {
+                let data = radarQueue.shift(); 
+                if (data && data.distance !== undefined) {
+                    let msgAngle = data.angle !== undefined ? data.angle : scanAngle;
+                    scanAngle = msgAngle;
+                    if (data.distance < 400) {
+                        addRadarPoint(msgAngle, data.distance);
+                        lastDistance = data.distance;
+                    } else {
+                        lastDistance = 400;
+                    }
                     drawScanLine(msgAngle);
-                } else {
-                    drawScanLineEmpty();
-                }
-                
-                drawAllPoints();
-                
-                drawLabels();
-            }
-            
-            function drawRadarCircles() {
-                noFill();
-                stroke(0, 255, 0);
-                
-                for (let i = 1; i <= 8; i++) {
-                    strokeWeight(i % 2 === 0 ? 3 : 1);
-                    circle(x, y, i * 100);
                 }
             }
             
-            function drawScanLine(angle) {
-                let usedAngle = angle < 2 * PI ? angle : radians(angle);
+            drawAllPoints();
+            drawLabels();
+        }
+        
+        function drawRadarCircles() {
+            noFill();
+            stroke(0, 255, 0);
+            let stepPx = MAX_RADIUS_PX / 6; 
+            for (let i = 1; i <= 6; i++) {
+                strokeWeight(i % 2 === 0 ? 3 : 1);
+                let currentRadius = stepPx * i;
+                circle(x, y, currentRadius * 2); 
+            }
+        }
+        
+        function drawScanLine(angle) {
+            let usedAngle = angle < 2 * PI ? angle : radians(angle);
+            stroke(0, 255, 0);
+            strokeWeight(2);
+            let displayDist = lastDistance ? map(lastDistance, 0, MAX_RANGE_CM, 0, MAX_RADIUS_PX) : 0;
+            displayDist = constrain(displayDist, 0, MAX_RADIUS_PX);
+            let x2 = x + cos(usedAngle) * displayDist;
+            let y2 = y - sin(usedAngle) * displayDist;
+            line(x, y, x2, y2);
+        }
+        
+        function addRadarPoint(angle, distance) {
+            let limitedDistance = constrain(distance, 0, MAX_RANGE_CM);
+            let radAngle = angle < 2 * PI ? angle : radians(angle);
+            let scaledDistance = map(limitedDistance, 0, MAX_RANGE_CM, 0, MAX_RADIUS_PX);
+            let px = x + cos(radAngle) * scaledDistance;
+            let py = y - sin(radAngle) * scaledDistance;
+            points.push({ 
+                x: px, 
+                y: py, 
+                angle: angle, 
+                distance: limitedDistance,
+                timestamp: millis()
+            });
+            if (points.length > 500) {
+                points.shift();
+            }
+        }
 
-                stroke(0, 255, 0);
+        function drawAllPoints() {
+            let currentTime = millis();
+            let fadeDuration = 5000;
+            for (let i = 0; i < points.length; i++) {
+                let age = currentTime - points[i].timestamp;
+                let opacity = map(age, 0, fadeDuration, 255, 0);
+                opacity = constrain(opacity, 0, 255);
+                fill(0, 255, 0, opacity);
+                stroke(100, 255, 100, opacity);
                 strokeWeight(2);
-                let x2 = x + cos(usedAngle) * lastDistance;
-                let y2 = y - sin(usedAngle) * lastDistance;
-                line(x, y, x2, y2);
-                scanAngle += 0.02 * scanDirection;
-                if (scanAngle > PI) {
-                    scanAngle = PI;
-                    scanDirection = -1;
-                }
-                if (scanAngle < 0) {
-                    scanAngle = 0;
-                    scanDirection = 1;
-                }
+                circle(points[i].x, points[i].y, 5);
             }
-            
-            function drawScanLineEmpty() {
-                stroke(0, 255, 0);
-                strokeWeight(2);
-                let x2 = x + cos(scanAngle) * 400;
-                let y2 = y - sin(scanAngle) * 400;
-                line(x, y, x2, y2);
-                
-                scanAngle += 0.02 * scanDirection;
-                if (scanAngle > PI) {
-                    scanAngle = PI;
-                    scanDirection = -1;
-                }
-                if (scanAngle < 0) {
-                    scanAngle = 0;
-                    scanDirection = 1;
-                }
-            }
-            
-            function addRadarPoint(angle, distance) {
-                let limitedDistance = constrain(distance, 0, 400);
-
-                let radAngle = angle < 2 * PI ? angle : radians(angle);
-
-                let scaledDistance = map(limitedDistance, 0, 400, 0, 400);
-
-                let px = x + cos(radAngle) * scaledDistance;
-                let py = y - sin(radAngle) * scaledDistance;
-
-                points.push({ 
-                    x: px, 
-                    y: py, 
-                    angle: angle, 
-                    distance: limitedDistance,
-                    timestamp: millis()
-                });
-
-                if (points.length > 50) {
-                    points.shift();
-                }
-            }
-
-            function drawAllPoints() {
-                let currentTime = millis();
-                let fadeDuration = 5000;
-                
-                for (let i = 0; i < points.length; i++) {
-                    let age = currentTime - points[i].timestamp;
-                    let opacity = map(age, 0, fadeDuration, 255, 0);
-                    opacity = constrain(opacity, 0, 255);
-                    
-                    fill(0, 255, 0, opacity);
-                    stroke(100, 255, 100, opacity);
-                    strokeWeight(2);
-                    circle(points[i].x, points[i].y, 5);
-                }
-                
-                points = points.filter(point => (currentTime - point.timestamp) < fadeDuration);
-            }
-            
-            function drawLabels() {
-                fill(0, 255, 0);
-                noStroke();
-                textSize(10);
-                textAlign(CENTER, TOP);
-
-                // Draw scale labels from center to left
-                const baseY = height - 12;
-                const stepPx = 50;
-                for (let i = 0; i <= 8; i++) {
-                    const label = (i * 0.5).toFixed(1) + 'm';
-                    const px = x - i * stepPx;
-                    text(label, px, baseY);
-                }
-            }
-        </script>
+            points = points.filter(point => (currentTime - point.timestamp) < fadeDuration);
+        }
+        
+        function drawLabels() {
+            fill(0, 255, 0);
+            noStroke();
+            textSize(10);
+            textAlign(CENTER, TOP);
+            let pxPerMeter = MAX_RADIUS_PX / 3; 
+            text("0m", x, y - 10);
+            text("0.5m", x - (pxPerMeter * 0.5), y - 10);
+            text("1m", x - (pxPerMeter * 1), y - 10);
+            text("1.5m", x - (pxPerMeter * 1.5), y - 10);
+            text("2m", x - (pxPerMeter * 2), y - 10);
+            text("2.5m", x - (pxPerMeter * 2.5), y - 10);
+            text("3m", x - MAX_RADIUS_PX, y - 10);
+        }
+    </script>
 </body>
 </html>
