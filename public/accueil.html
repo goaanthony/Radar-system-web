@@ -2,160 +2,223 @@
 <html>
 <head>
     <meta charset="UTF-8">
-    <title>Accueil - Radar MQTT</title>
+    <title>Accueil - Rasar</title>
+    <link rel="stylesheet" href="./accueil.css">
+    
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            min-height: 100vh;
-            background: #f0f0f0;
-            margin: 0;
-            color: #333;
-        }
 
-        /* Top bar with username (left), empty center, logout (right) */
-        .topbar {
-            position: fixed;
-            top: 16px;
-            left: 16px;
-            right: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            background: rgba(255,255,255,0.95);
-            padding: 12px 20px;
-            border-radius: 10px;
-            box-shadow: 0 6px 18px rgba(0,0,0,0.06);
-            z-index: 20;
-        }
-
-        .topbar .left {
-            font-size: 16px;
-            font-weight: 600;
-        }
-
-        .topbar .right button {
-            padding: 8px 14px;
-            background: #007bff;
-            color: white;
-            border: none;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        .topbar .right button:hover { background: #0056b3; }
-
-        main {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            padding-top: 96px; /* leave room for topbar */
-        }
-
-        .title-rasar {
-            font-size: 36px;
-            font-weight: 800;
-            margin: 6px 0 18px 0;
-            color: #222;
-        }
-
-        #status {
-            color: #666;
-            margin-bottom: 12px;
-            font-size: 16px;
-        }
-
-        /* Sketch container to center the p5 canvas */
-        #sketch {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        /* small responsive tweak */
-        @media (max-width: 980px) {
-            .title-rasar { font-size: 28px; }
-            #sketch canvas { max-width: 100%; height: auto; }
-        }
     </style>
 </head>
 <body>
     <div class="topbar">
         <div class="left">👤 <span id="username">utilisateur</span></div>
-        <div class="center"></div>
         <div class="right"><button onclick="logout()">Déconnexion</button></div>
     </div>
 
     <main>
         <div class="title-rasar">RASAR</div>
-        <div id="status">Connexion au serveur MQTT...</div>
+        
+        <div class="status-container">
+            <div id="status">En attente...</div>
+            <div class="settings-icon" title="Modifier la connexion">✏️</div>
 
-        <div id="sketch"></div>
+            <div class="settings-popup">
+                <div style="margin-bottom:10px; font-weight:800; border-bottom:1px solid #eee; padding-bottom:5px;">Paramètres</div>
+                
+                <div class="setting-item">
+                    <label>Flux MQTT:</label>
+                    <button id="btn-connection" class="btn-toggle btn-on" onclick="toggleConnection()">ACTIF</button>
+                </div>
+
+                <div class="setting-item">
+                    <label>Mode:</label>
+                    <select id="connection-mode" onchange="switchMode()">
+                        <option value="sse">SSE (Temps réel)</option>
+                        <option value="poll">Polling (Lent)</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div id="sketch"></div>
+
+            <div class="log-sidebar">
+                <div class="log-header">MESSAGES REÇUS</div>
+                <div id="log-list" class="log-container">
+                    <div class="log-entry" style="color:#888;">En attente de données...</div>
+                </div>
+            </div>
+        </div>
+
     </main>
 
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     <script>
+        // --- AUTH & SESSION ---
         fetch('/api/check-session')
             .then(response => response.json())
             .then(data => {
-                if (!data.authenticated) {
-                    window.location.href = '/login.html';
-                } else {
-                    document.getElementById('username').textContent = data.username;
-                }
+                if (!data.authenticated) { window.location.href = '/login.html'; } 
+                else { document.getElementById('username').textContent = data.username; }
             })
-            .catch(err => {
-                window.location.href = '/login.html';
-            });
-        const statusDiv = document.getElementById('status');
-        let radarQueue = []; 
+            .catch(err => { window.location.href = '/login.html'; });
 
-        if (!!window.EventSource) {
-            const evtSource = new EventSource('/events');
+        function logout() { window.location.href = '/login.html'; }
 
-            evtSource.onopen = () => {
-                statusDiv.textContent = ' Connecté (SSE)';
-            };
+        // --- GESTION LOGS (NOUVEAU) ---
+        const logList = document.getElementById('log-list');
 
-            evtSource.onerror = (err) => {
-                statusDiv.textContent = ' Erreur de connexion SSE';
-                console.error('SSE erreur:', err);
-            };
+        function addLogEntry(data) {
+            // Création de l'élément HTML
+            const div = document.createElement('div');
+            div.className = 'log-entry';
+            
+            const time = new Date().toLocaleTimeString();
+            // On vérifie si c'est un objet ou du texte
+            const angle = data.angle !== undefined ? Math.round(data.angle) + '°' : 'N/A';
+            const dist = data.distance !== undefined ? Math.round(data.distance) + 'cm' : 'N/A';
 
-            evtSource.onmessage = (e) => {
-                try {
-                    const msg = JSON.parse(e.data);
-                    radarQueue.push(msg.message || msg);
-                } catch (err) {
-                    console.error('Erreur parsing SSE message', err);
-                }
-            };
-        } else {
-            async function fetchMessages() {
-                try {
-                    const response = await fetch('/api/messages');
-                    const messages = await response.json();
-                    statusDiv.textContent = ' Connecté (polling)';
-                    
-                    if (messages.length > 0) {
-                        messages.forEach(m => radarQueue.push(m.message));
-                    }
-                } catch (err) {
-                    statusDiv.textContent = ' Erreur de connexion';
-                    console.error('Erreur:', err);
-                }
+            div.innerHTML = `<span class="log-time">[${time}]</span> <span class="log-data">A:${angle} - D:${dist}</span>`;
+            
+            // Ajout au DOM
+            logList.appendChild(div);
+
+            // Scroll automatique vers le bas
+            logList.scrollTop = logList.scrollHeight;
+
+            // Limiter le nombre de logs pour ne pas faire laguer le navigateur (max 50)
+            if (logList.children.length > 50) {
+                logList.removeChild(logList.firstChild);
             }
-            fetchMessages();
-            setInterval(fetchMessages, 100);
         }
 
-        function logout() {
-            window.location.href = '/';
+        // --- GESTION CONNEXION ---
+        const statusDiv = document.getElementById('status');
+        const btnConnection = document.getElementById('btn-connection');
+        const modeSelect = document.getElementById('connection-mode');
+        
+        let radarQueue = []; 
+        let evtSource = null;
+        let pollInterval = null;
+        let isConnected = false;
+
+        // Fonction pour démarrer la connexion selon le mode choisi
+        function startConnection() {
+            const mode = modeSelect.value;
+            
+            if (mode === 'sse') {
+                if (!!window.EventSource) {
+                    if (evtSource) evtSource.close();
+
+                    evtSource = new EventSource('/events');
+
+                    evtSource.onopen = () => {
+                        updateStatus('Connecté (SSE)', true);
+                    };
+
+                    evtSource.onerror = (err) => {
+                        updateStatus('Erreur SSE', false);
+                        console.error('SSE erreur:', err);
+                    };
+
+                    evtSource.onmessage = (e) => {
+                        if(!isConnected) return;
+                        try {
+                            const msg = JSON.parse(e.data);
+                            const payload = msg.message || msg;
+                            radarQueue.push(payload);
+                            addLogEntry(payload);
+                        } catch (err) { console.error('Erreur parsing', err); }
+                    };
+                }
+            } else {
+                // Mode Polling
+                if (evtSource) { evtSource.close(); evtSource = null; }
+                
+                // Fonction fetch immédiate
+                const doFetch = async () => {
+                    if(!isConnected) return;
+                    try {
+                        const response = await fetch('/api/messages');
+                        const messages = await response.json();
+                        updateStatus('Connecté (Polling)', true);
+                        if (messages.length > 0) {
+                            messages.forEach(m => {
+                                const payload = m.message;
+                                radarQueue.push(payload);
+                                addLogEntry(payload);
+                            });
+                        }
+                    } catch (err) {
+                        updateStatus('Erreur Polling', false);
+                    }
+                };
+                
+                doFetch();
+                pollInterval = setInterval(doFetch, 500);
+            }
+            
+            isConnected = true;
+            updateBtnUI(true);
         }
+
+        // Fonction pour tout arrêter
+        function stopConnection() {
+            isConnected = false;
+            if (evtSource) {
+                evtSource.close();
+                evtSource = null;
+            }
+            if (pollInterval) {
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+            updateStatus('Déconnecté (Pause)', false);
+            updateBtnUI(false);
+        }
+
+        // Toggle Button Click
+        function toggleConnection() {
+            if (isConnected) {
+                stopConnection();
+            } else {
+                startConnection();
+            }
+        }
+
+        // Changement de mode (Dropdown)
+        function switchMode() {
+            if (isConnected) {
+                stopConnection();
+                startConnection();
+            }
+        }
+
+        // UI Updates
+        function updateStatus(text, active) {
+            statusDiv.textContent = text;
+            statusDiv.style.color = active ? '#28a745' : '#dc3545';
+        }
+
+        function updateBtnUI(active) {
+            if(active) {
+                btnConnection.textContent = "ACTIF";
+                btnConnection.className = "btn-toggle btn-on";
+            } else {
+                btnConnection.textContent = "INACTIF";
+                btnConnection.className = "btn-toggle btn-off";
+            }
+        }
+
+        // Démarrage initial
+        startConnection();
     </script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.min.js"></script>
     
     <script>
+        // --- VISUALISATION P5.JS (Inchangée) ---
         const MAX_RANGE_CM = 300;
         const MAX_RADIUS_PX = 400;
         let x = 450;
@@ -165,14 +228,17 @@
         let scanAngle = 0;
 
         function setup() {
-            createCanvas(900, 450);
+            let cnv = createCanvas(900, 450);
+            cnv.parent('sketch');
         }
 
         function draw() {
             background(0, 40);
             drawRadarCircles();
-            while (radarQueue.length > 0) {
+            let processed = 0;
+            while (radarQueue.length > 0 && processed < 20) {
                 let data = radarQueue.shift(); 
+                processed++;
                 if (data && data.distance !== undefined) {
                     let msgAngle = data.angle !== undefined ? data.angle : scanAngle;
                     scanAngle = msgAngle;
@@ -225,24 +291,24 @@
                 distance: limitedDistance,
                 timestamp: millis()
             });
-            if (points.length > 500) {
-                points.shift();
-            }
+            if (points.length > 500) points.shift();
         }
 
         function drawAllPoints() {
             let currentTime = millis();
             let fadeDuration = 5000;
-            for (let i = 0; i < points.length; i++) {
+            for (let i = points.length - 1; i >= 0; i--) {
                 let age = currentTime - points[i].timestamp;
+                if (age > fadeDuration) {
+                    points.splice(i, 1);
+                    continue;
+                }
                 let opacity = map(age, 0, fadeDuration, 255, 0);
-                opacity = constrain(opacity, 0, 255);
                 fill(0, 255, 0, opacity);
                 stroke(100, 255, 100, opacity);
                 strokeWeight(2);
                 circle(points[i].x, points[i].y, 5);
             }
-            points = points.filter(point => (currentTime - point.timestamp) < fadeDuration);
         }
         
         function drawLabels() {
@@ -252,11 +318,8 @@
             textAlign(CENTER, TOP);
             let pxPerMeter = MAX_RADIUS_PX / 3; 
             text("0m", x, y - 10);
-            text("0.5m", x - (pxPerMeter * 0.5), y - 10);
             text("1m", x - (pxPerMeter * 1), y - 10);
-            text("1.5m", x - (pxPerMeter * 1.5), y - 10);
             text("2m", x - (pxPerMeter * 2), y - 10);
-            text("2.5m", x - (pxPerMeter * 2.5), y - 10);
             text("3m", x - MAX_RADIUS_PX, y - 10);
         }
     </script>
