@@ -103,7 +103,6 @@
     <div class="container">
         <h1> Radar MQTT</h1>
         
-        <!-- Formulaire de connexion -->
         <div id="login-section" class="form-section active">
             <div class="form-group">
                 <label for="login-username">Nom d'utilisateur</label>
@@ -121,7 +120,6 @@
             </p>
         </div>
         
-        <!-- Formulaire d'inscription -->
         <div id="register-section" class="form-section">
             <div class="form-group">
                 <label for="register-username">Nom d'utilisateur</label>
@@ -247,7 +245,6 @@
             });
         }
 
-        // Permettre la connexion avec Entrée
         document.getElementById('login-password').addEventListener('keypress', function(e) {
             if (e.key === 'Enter') {
                 login();

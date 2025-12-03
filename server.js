@@ -8,10 +8,8 @@ const path = require('path');
 const app = express();
 const port = 3000;
 
-// Chemin du fichier de stockage des utilisateurs
 const usersFilePath = path.join(__dirname, 'users.json');
 
-// Charger les utilisateurs depuis le fichier
 function loadUsers() {
     try {
         if (fs.existsSync(usersFilePath)) {
@@ -24,7 +22,6 @@ function loadUsers() {
     return {};
 }
 
-// Sauvegarder les utilisateurs dans le fichier
 function saveUsers(users) {
     try {
         fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2), 'utf8');
@@ -35,12 +32,11 @@ function saveUsers(users) {
 
 let users = loadUsers();
 
-// Configuration des sessions
 app.use(session({
     secret: 'radar-secret-key-123',
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 1000 * 60 * 60 * 24 } // 24 heures
+    cookie: { maxAge: 1000 * 60 * 60 * 24 }
 }));
 
 app.use(express.json());
@@ -52,18 +48,16 @@ let sseClients = [];
 
 app.use(express.static('public'));
 
-// Route de connexion
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
-    
+
     if (users[username]) {
-        // Comparer le mot de passe avec le hash
         bcrypt.compare(password, users[username], (err, isMatch) => {
             if (err) {
                 res.json({ success: false });
                 return;
             }
-            
+
             if (isMatch) {
                 req.session.userId = username;
                 req.session.username = username;
@@ -77,36 +71,32 @@ app.post('/api/login', (req, res) => {
     }
 });
 
-// Route d'inscription
 app.post('/api/register', (req, res) => {
     const { username, password } = req.body;
-    
+
     if (!username || !password) {
-        res.json({ success: false, message: 'Nom d\'utilisateur et mot de passe requis' });
+        res.json({ success: false, message: "Nom d'utilisateur et mot de passe requis" });
         return;
     }
-    
+
     if (users[username]) {
-        res.json({ success: false, message: 'Ce nom d\'utilisateur existe déjà' });
+        res.json({ success: false, message: "Ce nom d'utilisateur existe déjà" });
         return;
     }
-    
-    // Chiffrer le mot de passe
+
     bcrypt.hash(password, 10, (err, hashedPassword) => {
         if (err) {
             res.json({ success: false, message: 'Erreur serveur' });
             return;
         }
-        
-        // Créer le nouvel utilisateur avec le mot de passe chiffré
+
         users[username] = hashedPassword;
         saveUsers(users);
-        
+
         res.json({ success: true, message: 'Compte créé avec succès' });
     });
 });
 
-// Route de vérification de session
 app.get('/api/check-session', (req, res) => {
     if (req.session.userId) {
         res.json({ authenticated: true, username: req.session.username });
@@ -115,7 +105,6 @@ app.get('/api/check-session', (req, res) => {
     }
 });
 
-// Route de déconnexion
 app.post('/api/logout', (req, res) => {
     req.session.destroy((err) => {
         if (err) {
@@ -126,7 +115,6 @@ app.post('/api/logout', (req, res) => {
     });
 });
 
-// Middleware pour vérifier la session
 function checkAuth(req, res, next) {
     if (req.session.userId) {
         next();
@@ -159,7 +147,7 @@ app.get('/events', checkAuth, (req, res) => {
 });
 
 const client = mqtt.connect('wss://broker.emqx.io:8084/mqtt', {
-    username: 'Antho' 
+    username: 'Antho'
 });
 
 client.on('connect', () => {
@@ -174,23 +162,23 @@ client.on('connect', () => {
 client.on('message', (topic, message) => {
     const messageString = message.toString();
     console.log(`Message reçu sur ${topic}: ${messageString}`);
-    
+
     let parsedMessage;
     try {
         parsedMessage = JSON.parse(messageString);
     } catch (e) {
         parsedMessage = { raw: messageString };
     }
-    
+
     const messageData = {
         topic: topic,
         message: parsedMessage,
         timestamp: new Date().toLocaleTimeString('fr-FR'),
         raw: messageString
     };
-    
+
     lastMessages.unshift(messageData);
-    
+
     if (lastMessages.length > maxMessages) {
         lastMessages.pop();
     }
@@ -199,11 +187,9 @@ client.on('message', (topic, message) => {
     sseClients.forEach((res) => {
         try {
             res.write(`data: ${payload}\n\n`);
-        } catch (e) {
-        }
+        } catch (e) {}
     });
 });
-
 
 app.listen(port, () => {
     console.log(`Serveur web lancé sur http://localhost:${port}`);
